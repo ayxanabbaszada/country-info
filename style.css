@@ -1,0 +1,40 @@
+@import "tailwindcss";
+a {
+    text-decoration: none;
+}
+
+body {
+  background-color: white;
+  color: black;
+}
+
+
+body.dark {
+  background-color: #121212;
+  color: white;
+}
+#darkModeToggle {
+    top: 10px;
+    right: 20px;
+    
+}
+header {
+  background-color: #24adc5;
+  color: #f3f4f6;
+}
+body.dark header {
+  background-color: #1e2939;
+  color: #f3f4f6;
+}
+#cards div {
+  background-color: rgb(233, 231, 197);
+}
+body.dark #cards div {
+  background-color: #24272c;
+  color: #f3f4f6;
+  p {
+    color: #f3f4f6;
+  }
+}
+
+

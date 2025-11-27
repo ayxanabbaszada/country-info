@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ölkə Tap Oyunu + Zoom, Pan və Ox Düymələri</title>
+  <style>
+    body { margin: 0; }
+    #target {
+      font-size: 24px;
+      text-align: center;
+      margin: 20px 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 20px;
+    }
+    #score {
+      font-size: 18px;
+      text-align: center;
+      margin: 10px 0;
+    }
+    #restart-btn {
+      display: none;
+      padding: 10px 20px;
+      font-size: 18px;
+      background-color: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    #map-container {
+      width: 100vw;
+      height: 80vh;
+      overflow: hidden;
+      position: relative;
+      background: #f1f1f1;
+      cursor: grab;
+    }
+    #map-container:active {
+      cursor: grabbing;
+    }
+    #zoom-controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    #zoom-controls button {
+      font-size: 24px;
+      width: 40px;
+      height: 40px;
+      border: none;
+      background: white;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    #zoom-controls button:hover {
+      background: #eee;
+    }
+    #arrow-controls {
+      position: absolute;
+      bottom: 20px;
+      left: 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 5px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    }
+    #arrow-controls div {
+      display: flex;
+    }
+    #arrow-controls button {
+      width: 40px;
+      height: 40px;
+      font-size: 20px;
+      margin: 2px;
+      cursor: pointer;
+      background: white;
+      border: none;
+      transition: background 0.3s;
+    }
+    #arrow-controls button:hover {
+      background: #eee;
+    }
+    object {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: top left;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="target">
+    <span>Tapılacaq ölkə:</span>
+    <button id="restart-btn">Yenidən Başla</button>
+  </div>
+  <div id="score">Xal: 0</div>
+
+  <div id="map-container">
+    <object id="world-map" data="world.svg" type="image/svg+xml"></object>
+    <div id="zoom-controls">
+      <button id="zoom-in">+</button>
+      <button id="zoom-out">−</button>
+    </div>
+    <div id="arrow-controls">
+      <button id="up">↑</button>
+      <div>
+        <button id="left">←</button>
+        <button id="right">→</button>
+      </div>
+      <button id="down">↓</button>
+    </div>
+  </div>
+
+  <script src="./data.js"></script>
+  <script>
+    const targetDiv = document.getElementById("target");
+    const scoreDiv = document.getElementById("score");
+    const svgObject = document.getElementById("world-map");
+    const restartBtn = document.getElementById("restart-btn");
+    let currentCountry = null;
+    let score = 0;
+    let gameOver = false;
+    const svgMapFix = { uk:"GB",gr:"GR",el:"GR",cz:"CZ",su:"RU",tp:"TL",fx:"FR"};
+    let filteredData = [];
+
+    function updateScore() {
+      scoreDiv.textContent = `Xal: ${score}`;
+    }
+    function endGame(svgDoc) {
+      gameOver = true;
+      targetDiv.querySelector("span").textContent = "Səhv cavab! Oyun bitdi.";
+      restartBtn.style.display = "inline-block";
+    }
+    function clearLabels(svgDoc) {
+      svgDoc.querySelectorAll('[data-label="1"]').forEach(el => el.remove());
+    }
+    function createArrow(svgDoc, x, y, color) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.setAttribute("data-label", "1");
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", x);
+      line.setAttribute("y1", y - 30);
+      line.setAttribute("x2", x);
+      line.setAttribute("y2", y - 10);
+      line.setAttribute("stroke", color);
+      line.setAttribute("stroke-width", "2");
+      g.appendChild(line);
+      const head = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      head.setAttribute("d", `M${x-5},${y-10} L${x+5},${y-10} L${x},${y} Z`);
+      head.setAttribute("fill", color);
+      g.appendChild(head);
+      return g;
+    }
+    function showCorrectAnswer(svgDoc, countryEl) {
+      countryEl.style.fill = "#4ade80";
+      const b = countryEl.getBBox();
+      const x = b.x + b.width / 2;
+      const y = b.y + b.height / 2;
+      clearLabels(svgDoc);
+      if (b.width > 20 && b.height > 15) {
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", x);
+        t.setAttribute("y", y);
+        t.setAttribute("text-anchor", "middle");
+        t.setAttribute("dominant-baseline", "middle");
+        t.setAttribute("font-size", Math.min(b.width / 3, 14));
+        t.setAttribute("font-weight", "bold");
+        t.textContent = currentCountry.name;
+        t.setAttribute("data-label", "1");
+        countryEl.parentNode.appendChild(t);
+      } else {
+        countryEl.parentNode.appendChild(createArrow(svgDoc, x, y + 5, "#4ade80"));
+      }
+    }
+    function showWrongAnswer(svgDoc, countryEl) {
+      countryEl.style.fill = "#f87171";
+      const b = countryEl.getBBox();
+      const x = b.x + b.width / 2;
+      const y = b.y + b.height / 2;
+      clearLabels(svgDoc);
+      if (b.width > 20 && b.height > 15) {
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", x);
+        t.setAttribute("y", y);
+        t.setAttribute("text-anchor", "middle");
+        t.setAttribute("dominant-baseline", "middle");
+        t.setAttribute("font-size", Math.min(b.width / 3, 14));
+        t.setAttribute("font-weight", "bold");
+        t.textContent = currentCountry.name;
+        t.setAttribute("data-label", "1");
+        countryEl.parentNode.appendChild(t);
+      } else {
+        countryEl.parentNode.appendChild(createArrow(svgDoc, x, y + 5, "#f87171"));
+      }
+    }
+    function pickRandomCountry() {
+      if (!filteredData.length) {
+        targetDiv.querySelector("span").textContent = "Xəritədə uyğun ölkə yoxdur!";
+        return;
+      }
+      currentCountry = filteredData[Math.floor(Math.random() * filteredData.length)];
+      targetDiv.querySelector("span").textContent = `Tapılacaq ölkə: ${currentCountry.name}`;
+    }
+    function restartGame(svgDoc, countries) {
+      score = 0;
+      gameOver = false;
+      updateScore();
+      restartBtn.style.display = "none";
+      countries.forEach(c => c.style.fill = "");
+      clearLabels(svgDoc);
+      pickRandomCountry();
+    }
+
+    // Zoom və Pan üçün dəyişənlər
+    let scale = 1, posX = 0, posY = 0, isDragging = false, startX = 0, startY = 0;
+    let minScale = 1;
+    const maxScale = 5;
+    const mapContainer = document.getElementById("map-container");
+
+    function updateTransform() {
+      svgObject.style.transform = `translate(${posX}px,${posY}px) scale(${scale})`;
+    }
+
+    // Panning-in xəritədən kənara çıxmasının qarşısını almaq üçün limitlə
+    function limitPan() {
+      const containerWidth = mapContainer.clientWidth;
+      const containerHeight = mapContainer.clientHeight;
+      const svgDoc = svgObject.contentDocument;
+      if (!svgDoc) return;
+
+      const svgElement = svgDoc.documentElement;
+      const bbox = svgElement.getBBox();
+
+      const svgWidth = bbox.width * scale;
+      const svgHeight = bbox.height * scale;
+
+      // Maksimum və minimum pan dəyərləri (sınırlar)
+      const minX = Math.min(0, containerWidth - svgWidth);
+      const maxX = 0;
+      const minY = Math.min(0, containerHeight - svgHeight);
+      const maxY = 0;
+
+      if (posX < minX) posX = minX;
+      if (posX > maxX) posX = maxX;
+      if (posY < minY) posY = minY;
+      if (posY > maxY) posY = maxY;
+    }
+
+    function updateMinScale() {
+      const containerWidth = mapContainer.clientWidth;
+      const containerHeight = mapContainer.clientHeight;
+      const svgDoc = svgObject.contentDocument;
+      if (!svgDoc) return;
+
+      const svgElement = svgDoc.documentElement;
+      const bbox = svgElement.getBBox();
+
+      const svgWidth = bbox.width || svgElement.clientWidth || 1000;
+      const svgHeight = bbox.height || svgElement.clientHeight || 500;
+
+      minScale = Math.min(containerWidth / svgWidth, containerHeight / svgHeight);
+      if (minScale > 1) minScale = 1; // heç vaxt 1-dən böyük zoom min olmasın
+
+      // Əgər hazırkı miqyas minScale-dən aşağıdırsa, yenilə
+      if (scale < minScale) {
+        scale = minScale;
+        posX = 0;
+        posY = 0;
+      }
+    }
+
+    function zoom(factor, cx, cy) {
+      const oldScale = scale;
+      scale *= factor;
+      if (scale < minScale) scale = minScale;
+      if (scale > maxScale) scale = maxScale;
+
+      posX = cx - ((cx - posX) * (scale / oldScale));
+      posY = cy - ((cy - posY) * (scale / oldScale));
+
+      limitPan();
+      updateTransform();
+    }
+
+    document.getElementById("zoom-in").addEventListener("click", () => {
+      const rect = mapContainer.getBoundingClientRect();
+      zoom(1.2, rect.width / 2, rect.height / 2);
+    });
+    document.getElementById("zoom-out").addEventListener("click", () => {
+      const rect = mapContainer.getBoundingClientRect();
+      zoom(1 / 1.2, rect.width / 2, rect.height / 2);
+    });
+    mapContainer.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+      zoom(factor, e.clientX, e.clientY);
+    });
+
+    mapContainer.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      startX = e.clientX - posX;
+      startY = e.clientY - posY;
+    });
+    window.addEventListener("mouseup", () => isDragging = false);
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      posX = e.clientX - startX;
+      posY = e.clientY - startY;
+      limitPan();
+      updateTransform();
+    });
+
+    // Ox düymələri ilə pan (limitlə)
+    function panMap(dx, dy) {
+      posX += dx;
+      posY += dy;
+      limitPan();
+      updateTransform();
+    }
+    document.getElementById("up").addEventListener("click", () => panMap(0, 50));
+    document.getElementById("down").addEventListener("click", () => panMap(0, -50));
+    document.getElementById("left").addEventListener("click", () => panMap(50, 0));
+    document.getElementById("right").addEventListener("click", () => panMap(-50, 0));
+
+    // Oyun başladılması
+    svgObject.addEventListener("load", () => {
+      const svgDoc = svgObject.contentDocument;
+      const countries = svgDoc.querySelectorAll("path");
+      const ids = new Set();
+      countries.forEach(c => {
+        const id = c.id.trim().toLowerCase();
+        if (svgMapFix[id]) ids.add(svgMapFix[id].toUpperCase());
+        ids.add(c.id.trim().toUpperCase());
+      });
+      filteredData = data.filter(country => ids.has(country.alpha2Code));
+      countries.forEach(el => {
+        el.style.pointerEvents = "auto";
+        el.style.cursor = "pointer";
+        el.addEventListener("click", () => {
+          if (gameOver || !currentCountry) return;
+          let id = el.id.trim();
+          if (svgMapFix[id.toLowerCase()]) id = svgMapFix[id.toLowerCase()];
+          else id = id.toUpperCase();
+          clearLabels(svgDoc);
+          if (id === currentCountry.alpha2Code || id === currentCountry.code) {
+            el.style.fill = "#4ade80";
+            score++; updateScore();
+            setTimeout(() => {
+              countries.forEach(c => c.style.fill = "");
+              clearLabels(svgDoc);
+              pickRandomCountry();
+            }, 1000);
+          } else {
+            showWrongAnswer(svgDoc, el);
+            const correctId = svgMapFix[currentCountry.alpha2Code?.toLowerCase()] || currentCountry.alpha2Code;
+            const correct = svgDoc.getElementById(correctId) || svgDoc.getElementById(correctId?.toLowerCase());
+            if (correct) showCorrectAnswer(svgDoc, correct);
+            
+            endGame(svgDoc);
+          }
+        });
+      });
+      restartBtn.addEventListener("click", () => restartGame(svgDoc, countries));
+      updateScore();
+      pickRandomCountry();
+      updateMinScale();
+      updateTransform();
+
+      window.addEventListener("resize", () => {
+        updateMinScale();
+        limitPan();
+        updateTransform();
+      });
+    });
+  </script>
+</body>
+</html>
